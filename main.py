@@ -1,5 +1,9 @@
 import streamlit as st
-# streamlit page
+import os
+import os.path
+from pathlib import Path
+from auth import init_authentication, show_login_page, login_user, register_user, logout_user
+
 st.set_page_config(
     page_title="GitHub Activity Analyzer",
     page_icon="📊",
@@ -7,13 +11,18 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+init_authentication()
+
+with open('styles.css') as f:
+    st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from datetime import datetime, timedelta, timezone
 import requests
+import plotly.express as px
+import plotly.graph_objects as go
 from dotenv import load_dotenv
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -22,27 +31,21 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
-import plotly.express as px
-import plotly.graph_objects as go
 from textblob import TextBlob
 import re
 from collections import Counter
 import warnings
 from statsmodels.tsa.arima.model import ARIMA
 
-# nltk data handling
 @st.cache_resource
 def initialize_nltk():
-    """setup nltk with error checks"""
     nltk_data_dir = os.path.join(os.getcwd(), "nltk_data")
     os.makedirs(nltk_data_dir, exist_ok=True)
     
-    #data dir to path
     if nltk_data_dir not in nltk.data.path:
         nltk.data.path.append(nltk_data_dir)
     
     try:
-        #nltk data
         nltk.download('punkt', download_dir=nltk_data_dir)
         nltk.download('stopwords', download_dir=nltk_data_dir)
         nltk.download('wordnet', download_dir=nltk_data_dir)
@@ -52,24 +55,19 @@ def initialize_nltk():
         st.error(f"nltk download failed: {str(e)}")
         return False
 
-#  nltk
 nltk_initialized = initialize_nltk()
 
 def safe_preprocess_text(text):
-    """clean text with backup options"""
     if not isinstance(text, str):
         return ""
     
     try:
-        # clean text
         text = text.lower()
         text = re.sub(r'\W', ' ', text)
         
-        #  split if nltk fails
         if not nltk_initialized:
             return ' '.join(text.split())
         
-        #nltk processing
         try:
             tokens = word_tokenize(text)
             stop_words = set(stopwords.words('english'))
@@ -589,8 +587,20 @@ class GitHubAnalyzer:
 
 # Streamlit app
 def main():
+    # Check if user is authenticated
+    if not st.session_state.authenticated:
+        show_login_page()
+        return
+        
     st.title("GitHub Activity Analysis Dashboard")
-
+    
+    # Add logout button in sidebar
+    with st.sidebar:
+        st.header(f"Welcome, {st.session_state.username}!")
+        if st.button("Logout"):
+            logout_user()
+            st.experimental_rerun()
+    
     st.markdown("""
     Welcome to the comprehensive GitHub activity analyzer. This tool provides deep insights into your 
     GitHub contributions, coding patterns, and repository statistics.
@@ -820,20 +830,20 @@ def main():
                     fill_value=0
                 )
                 pivot_data = pivot_data.iloc[::-1]
-                fig, ax = plt.subplots(figsize=(15, 3))
-                sns.heatmap(
+                
+                # Create a Plotly heatmap instead of matplotlib/seaborn
+                fig = px.imshow(
                     pivot_data,
-                    cmap='Blues',
-                    linewidths=.5,
-                    ax=ax,
-                    cbar_kws={'label': 'Commits'}
+                    color_continuous_scale='Blues',
+                    labels=dict(x="Week", y="Day", color="Commits"),
+                    height=300
                 )
-                weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-                ax.set_yticklabels(weekdays[::-1])
-                ax.set_xticklabels([])
-                ax.set_xlabel('Weeks')
-                ax.set_title('Commit Activity Heatmap (Last 12 Months)')
-                st.pyplot(fig)
+                fig.update_layout(
+                    xaxis_title="Weeks",
+                    yaxis_title="Day of Week",
+                    title="Commit Activity Heatmap (Last 12 Months)"
+                )
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No commit data loaded. Please fetch GitHub data first.")
         
